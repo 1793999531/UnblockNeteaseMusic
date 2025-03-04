@@ -68,65 +68,68 @@ hook.target.path = new Set([
 ])
 
 hook.request.before = ctx => {
-	const {req} = ctx
-	req.url = (req.url.startsWith('http://') ? '' : (req.socket.encrypted ? 'https:' : 'http:') + '//' + (['music.163.com', 'music.126.net'].some(domain => (req.headers.host || '').endsWith(domain)) ? req.headers.host : null)) + req.url
-	const url = parse(req.url)
-	if ([url.hostname, req.headers.host].some(host => host.includes('music.163.com'))) ctx.decision = 'proxy'
-	if ([url.hostname, req.headers.host].some(host => hook.target.host.has(host)) && req.method == 'POST' && (url.path == '/api/linux/forward' || url.path.startsWith('/eapi/'))) {
-		return request.read(req)
-		.then(body => req.body = body)
-		.then(body => {
-			if ('x-napm-retry' in req.headers) delete req.headers['x-napm-retry']
-			req.headers['X-Real-IP'] = '118.88.88.88'
-			if (req.url.includes('stream')) return // look living eapi can not be decrypted
-			if (body) {
-				let data = null
-				const netease = {}
-				netease.pad = (body.match(/%0+$/) || [''])[0]
-				netease.forward = (url.path == '/api/linux/forward')
-				if (netease.forward) {
-					data = JSON.parse(crypto.linuxapi.decrypt(Buffer.from(body.slice(8, body.length - netease.pad.length), 'hex')).toString())
-					netease.path = parse(data.url).path
-					netease.param = data.params
-				}
-				else {
-					data = crypto.eapi.decrypt(Buffer.from(body.slice(7, body.length - netease.pad.length), 'hex')).toString().split('-36cd479b6b5-')
-					netease.path = data[0]
-					netease.param = JSON.parse(data[1])
-				}
-				netease.path = netease.path.replace(/\/\d*$/, '')
-				ctx.netease = netease
-				// console.log(netease.path, netease.param)
+    const {req} = ctx
+    req.url = (req.url.startsWith('http://') ? '' : (req.socket.encrypted ? 'https:' : 'http:') + '//' + (['music.163.com', 'music.126.net'].some(domain => (req.headers.host || '').endsWith(domain)) ? req.headers.host : null)) + req.url
+    const url = parse(req.url)
+    if ([url.hostname, req.headers.host].some(host => host.includes('music.163.com'))) ctx.decision = 'proxy'
+    if ([url.hostname, req.headers.host].some(host => hook.target.host.has(host)) && req.method == 'POST' && (url.path == '/api/linux/forward' || url.path.startsWith('/eapi/'))) {
+        return request.read(req)
+        .then(body => req.body = body)
+        .then(body => {
+            // 添加会员请求头
+            if ('x-napm-retry' in req.headers) delete req.headers['x-napm-retry']
+            req.headers['X-Real-IP'] = '118.88.88.88'
+            req.headers['X-VIP-FLAG'] = '1'
+            req.headers['X-VIP-TYPE'] = '1'
+            if (req.url.includes('stream')) return // look living eapi can not be decrypted
+            if (body) {
+                let data = null
+                const netease = {}
+                netease.pad = (body.match(/%0+$/) || [''])[0]
+                netease.forward = (url.path == '/api/linux/forward')
+                if (netease.forward) {
+                    data = JSON.parse(crypto.linuxapi.decrypt(Buffer.from(body.slice(8, body.length - netease.pad.length), 'hex')).toString())
+                    netease.path = parse(data.url).path
+                    netease.param = data.params
+                }
+                else {
+                    data = crypto.eapi.decrypt(Buffer.from(body.slice(7, body.length - netease.pad.length), 'hex')).toString().split('-36cd479b6b5-')
+                    netease.path = data[0]
+                    netease.param = JSON.parse(data[1])
+                }
+                netease.path = netease.path.replace(/\/\d*$/, '')
+                ctx.netease = netease
+                // console.log(netease.path, netease.param)
 
-				if (netease.path == '/api/song/enhance/download/url')
-					return pretendPlay(ctx)
-			}
-		})
-		.catch(error => console.log(error, req.url))
-	}
-	else if ((hook.target.host.has(url.hostname)) && (url.path.startsWith('/weapi/') || url.path.startsWith('/api/'))) {
-		req.headers['X-Real-IP'] = '118.88.88.88'
-		ctx.netease = {web: true, path: url.path.replace(/^\/weapi\//, '/api/').replace(/\?.+$/, '').replace(/\/\d*$/, '')}
-	}
-	else if (req.url.includes('package')) {
-		try {
-			const data = req.url.split('package/').pop().split('/')
-			const url = parse(crypto.base64.decode(data[0]))
-			const id = data[1].replace(/\.\w+/, '')
-			req.url = url.href
-			req.headers['host'] = url.hostname
-			req.headers['cookie'] = null
-			ctx.package = {id}
-			ctx.decision = 'proxy'
-			// if (url.href.includes('google'))
-			// 	return request('GET', req.url, req.headers, null, parse('http://127.0.0.1:1080'))
-			// 	.then(response => (ctx.res.writeHead(response.statusCode, response.headers), response.pipe(ctx.res)))
-		}
-		catch(error) {
-			ctx.error = error
-			ctx.decision = 'close'
-		}
-	}
+                if (netease.path == '/api/song/enhance/download/url')
+                    return pretendPlay(ctx)
+            }
+        })
+        .catch(error => console.log(error, req.url))
+    }
+    else if ((hook.target.host.has(url.hostname)) && (url.path.startsWith('/weapi/') || url.path.startsWith('/api/'))) {
+        req.headers['X-Real-IP'] = '118.88.88.88'
+        ctx.netease = {web: true, path: url.path.replace(/^\/weapi\//, '/api/').replace(/\?.+$/, '').replace(/\/\d*$/, '')}
+    }
+    else if (req.url.includes('package')) {
+        try {
+            const data = req.url.split('package/').pop().split('/')
+            const url = parse(crypto.base64.decode(data[0]))
+            const id = data[1].replace(/\.\w+/, '')
+            req.url = url.href
+            req.headers['host'] = url.hostname
+            req.headers['cookie'] = null
+            ctx.package = {id}
+            ctx.decision = 'proxy'
+            // if (url.href.includes('google'))
+            // 	return request('GET', req.url, req.headers, null, parse('http://127.0.0.1:1080'))
+            // 	.then(response => (ctx.res.writeHead(response.statusCode, response.headers), response.pipe(ctx.res)))
+        }
+        catch(error) {
+            ctx.error = error
+            ctx.decision = 'close'
+        }
+    }
 }
 
 hook.request.after = ctx => {
@@ -157,12 +160,25 @@ hook.request.after = ctx => {
 
 			const inject = (key, value) => {
 				if (typeof(value) === 'object' && value != null) {
+					// 移除会员限制
 					if ('fee' in value) value['fee'] = 0
-					if ('st' in value && 'pl' in value && 'dl' in value && 'subp' in value) { // batch modify
+					if ('st' in value && 'pl' in value && 'dl' in value && 'subp' in value) {
 						value['st'] = 0
 						value['subp'] = 1
-						value['pl'] = (value['pl'] == 0) ? 320000 : value['pl']
-						value['dl'] = (value['dl'] == 0) ? 320000 : value['dl']
+						value['pl'] = 999000  // 提升音质到最高
+						value['dl'] = 999000  // 提升下载品质到最高
+						value['fl'] = 999000  // 添加无损品质支持
+						value['sp'] = 7       // 添加播放权限
+						value['cp'] = 1       // 添加下载权限
+						value['freeTrialInfo'] = null  // 移除试听信息
+					}
+					// 移除播放时长限制
+					if ('freeTrialPrivilege' in value) {
+						value['freeTrialPrivilege'] = null
+					}
+					// 移除播放限制
+					if ('fee_type' in value) {
+						value['fee_type'] = 0
 					}
 				}
 				return value
@@ -268,65 +284,85 @@ const tryLike = ctx => {
 const computeHash = task => request('GET', task.url).then(response => crypto.md5.pipe(response))
 
 const tryMatch = ctx => {
-	const {req, netease} = ctx
-	const {jsonBody} = netease
-	let tasks = [], target = 0
+    const {req, netease} = ctx
+    const {jsonBody} = netease
+    let tasks = [], target = 0
 
-	const inject = item => {
-		item.flag = 0
-		if ((item.code != 200 || item.freeTrialInfo) && (target == 0 || item.id == target)) {
-			return match(item.id)
-			.then(song => {
-				item.type = song.br === 999000 ? 'flac' : 'mp3'
-				item.url = global.endpoint ? `${global.endpoint}/package/${crypto.base64.encode(song.url)}/${item.id}.${item.type}` : song.url
-				item.md5 = song.md5 || crypto.md5.digest(song.url)
-				item.br = song.br || 128000
-				item.size = song.size
-				item.code = 200
-				item.freeTrialInfo = null
-				return song
-			})
-			.then(song => {
-				if (!netease.path.includes('download') || song.md5) return
-				const newer = (base, target) => {
-					const difference =
-						Array.from([base, target])
-						.map(version => version.split('.').slice(0, 3).map(number => parseInt(number) || 0))
-						.reduce((aggregation, current) => !aggregation.length ? current.map(element => [element]) : aggregation.map((element, index) => element.concat(current[index])), [])
-						.filter(pair => pair[0] != pair[1])[0]
-					return !difference || difference[0] <= difference[1]
-				}
-				const limit = {android: '0.0.0', osx: '0.0.0'}
-				const task = {key: song.url.replace(/\?.*$/, '').replace(/(?<=kugou\.com\/)\w+\/\w+\//, '').replace(/(?<=kuwo\.cn\/)\w+\/\w+\/resource\//, ''), url: song.url}
-				try {
-					let {header} = netease.param
-					header = typeof(header) === 'string' ? JSON.parse(header) : header
-					const cookie = querystring.parse(req.headers.cookie.replace(/\s/g, ''), ';')
-					const os = header.os || cookie.os, version = header.appver || cookie.appver
-					if (os in limit && newer(limit[os], version))
-						return cache(computeHash, task, 7 * 24 * 60 * 60 * 1000).then(value => item.md5 = value)
-				}
-				catch(e) {}
-			})
-			.catch(() => {})
-		}
-		else if (item.code == 200 && netease.web) {
-			item.url = item.url.replace(/(m\d+?)(?!c)\.music\.126\.net/, '$1c.music.126.net')
-		}
-	}
+    const inject = item => {
+        item.flag = 0
+        if ((item.code != 200 || item.freeTrialInfo) && (target == 0 || item.id == target)) {
+            return match(item.id)
+            .then(song => {
+                // 强制设置为高品质音源
+                item.type = song.br === 999000 ? 'flac' : 'mp3'
+                item.url = global.endpoint ? 
+                    `${global.endpoint}/package/${crypto.base64.encode(song.url)}/${item.id}.${item.type}` : 
+                    song.url
+                item.md5 = song.md5 || crypto.md5.digest(song.url)
+                item.br = song.br || 320000  // 默认使用320k品质
+                item.size = song.size
+                item.code = 200
+                item.freeTrialInfo = null
+                // 添加完整播放权限
+                item.privilege = {
+                    id: item.id,
+                    fee: 0,
+                    payed: 1,
+                    st: 0,
+                    pl: 999000,
+                    dl: 999000,
+                    sp: 7,
+                    cp: 1,
+                    subp: 1,
+                    cs: true,
+                    maxbr: 999000,
+                    fl: 999000,
+                    pc: null,
+                    toast: false
+                }
+                return song
+            })
+            .then(song => {
+                if (!netease.path.includes('download') || song.md5) return
+                const newer = (base, target) => {
+                    const difference =
+                        Array.from([base, target])
+                        .map(version => version.split('.').slice(0, 3).map(number => parseInt(number) || 0))
+                        .reduce((aggregation, current) => !aggregation.length ? current.map(element => [element]) : aggregation.map((element, index) => element.concat(current[index])), [])
+                        .filter(pair => pair[0] != pair[1])[0]
+                    return !difference || difference[0] <= difference[1]
+                }
+                const limit = {android: '0.0.0', osx: '0.0.0'}
+                const task = {key: song.url.replace(/\?.*$/, '').replace(/(?<=kugou\.com\/)\w+\/\w+\//, '').replace(/(?<=kuwo\.cn\/)\w+\/\w+\/resource\//, ''), url: song.url}
+                try {
+                    let {header} = netease.param
+                    header = typeof(header) === 'string' ? JSON.parse(header) : header
+                    const cookie = querystring.parse(req.headers.cookie.replace(/\s/g, ''), ';')
+                    const os = header.os || cookie.os, version = header.appver || cookie.appver
+                    if (os in limit && newer(limit[os], version))
+                        return cache(computeHash, task, 7 * 24 * 60 * 60 * 1000).then(value => item.md5 = value)
+                }
+                catch(e) {}
+            })
+            .catch(() => {})
+        }
+        else if (item.code == 200 && netease.web) {
+            item.url = item.url.replace(/(m\d+?)(?!c)\.music\.126\.net/, '$1c.music.126.net')
+        }
+    }
 
-	if (!Array.isArray(jsonBody.data)) {
-		tasks = [inject(jsonBody.data)]
-	}
-	else if (netease.path.includes('download')) {
-		jsonBody.data = jsonBody.data[0]
-		tasks = [inject(jsonBody.data)]
-	}
-	else {
-		target = netease.web ? 0 : parseInt(((Array.isArray(netease.param.ids) ? netease.param.ids : JSON.parse(netease.param.ids))[0] || 0).toString().replace('_0', '')) // reduce time cost
-		tasks = jsonBody.data.map(item => inject(item))
-	}
-	return Promise.all(tasks).catch(() => {})
+    if (!Array.isArray(jsonBody.data)) {
+        tasks = [inject(jsonBody.data)]
+    }
+    else if (netease.path.includes('download')) {
+        jsonBody.data = jsonBody.data[0]
+        tasks = [inject(jsonBody.data)]
+    }
+    else {
+        target = netease.web ? 0 : parseInt(((Array.isArray(netease.param.ids) ? netease.param.ids : JSON.parse(netease.param.ids))[0] || 0).toString().replace('_0', '')) // reduce time cost
+        tasks = jsonBody.data.map(item => inject(item))
+    }
+    return Promise.all(tasks).catch(() => {})
 }
 
 module.exports = hook
